@@ -10,9 +10,13 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/hashicorp/terraform/terraform"
 	"github.com/mitchellh/cli"
 	"github.com/mitchellh/colorstring"
+	"github.com/zclconf/go-cty/cty"
+
+	"github.com/hashicorp/terraform/addrs"
+	"github.com/hashicorp/terraform/states"
+	"github.com/hashicorp/terraform/terraform"
 )
 
 const defaultPeriodicUiTimer = 10 * time.Second
@@ -30,6 +34,8 @@ type UiHook struct {
 	resources map[string]uiResourceState
 	ui        cli.Ui
 }
+
+var _ terraform.Hook = (*UiHook)(nil)
 
 // uiResourceState tracks the state of a single resource
 type uiResourceState struct {
@@ -53,10 +59,7 @@ const (
 	uiResourceDestroy
 )
 
-func (h *UiHook) PreApply(
-	n *terraform.InstanceInfo,
-	s *terraform.InstanceState,
-	d *terraform.InstanceDiff) (terraform.HookAction, error) {
+func (h *UiHook) PreApply(addr addrs.ResourceInstance, gen states.Generation, priorState, plannedNewState cty.Value) (terraform.HookAction, error) {
 	h.once.Do(h.init)
 
 	// if there's no diff, there's nothing to output
@@ -205,10 +208,7 @@ func (h *UiHook) stillApplying(state uiResourceState) {
 	}
 }
 
-func (h *UiHook) PostApply(
-	n *terraform.InstanceInfo,
-	s *terraform.InstanceState,
-	applyerr error) (terraform.HookAction, error) {
+func (h *UiHook) PostApply(addr addrs.ResourceInstance, gen states.Generation, newState cty.Value, err error) (terraform.HookAction, error) {
 
 	id := n.HumanId()
 	addr := n.ResourceAddress()
@@ -253,15 +253,11 @@ func (h *UiHook) PostApply(
 	return terraform.HookActionContinue, nil
 }
 
-func (h *UiHook) PreDiff(
-	n *terraform.InstanceInfo,
-	s *terraform.InstanceState) (terraform.HookAction, error) {
+func (h *UiHook) PreDiff(addr addrs.ResourceInstance, priorState, proposedNewState cty.Value) (terraform.HookAction, error) {
 	return terraform.HookActionContinue, nil
 }
 
-func (h *UiHook) PreProvision(
-	n *terraform.InstanceInfo,
-	provId string) (terraform.HookAction, error) {
+func (h *UiHook) PreProvisionInstanceStep(addr addrs.ResourceInstance, typeName string) (terraform.HookAction, error) {
 	addr := n.ResourceAddress()
 	h.ui.Output(h.Colorize.Color(fmt.Sprintf(
 		"[reset][bold]%s: Provisioning with '%s'...[reset]",
@@ -269,10 +265,7 @@ func (h *UiHook) PreProvision(
 	return terraform.HookActionContinue, nil
 }
 
-func (h *UiHook) ProvisionOutput(
-	n *terraform.InstanceInfo,
-	provId string,
-	msg string) {
+func (h *UiHook) ProvisionOutput(addr addrs.ResourceInstance, typeName string, line string) {
 	addr := n.ResourceAddress()
 	var buf bytes.Buffer
 	buf.WriteString(h.Colorize.Color("[reset]"))
@@ -290,9 +283,7 @@ func (h *UiHook) ProvisionOutput(
 	h.ui.Output(strings.TrimSpace(buf.String()))
 }
 
-func (h *UiHook) PreRefresh(
-	n *terraform.InstanceInfo,
-	s *terraform.InstanceState) (terraform.HookAction, error) {
+func (h *UiHook) PreRefresh(addr addrs.ResourceInstance, priorState cty.Value) (terraform.HookAction, error) {
 	h.once.Do(h.init)
 
 	addr := n.ResourceAddress()
@@ -310,9 +301,7 @@ func (h *UiHook) PreRefresh(
 	return terraform.HookActionContinue, nil
 }
 
-func (h *UiHook) PreImportState(
-	n *terraform.InstanceInfo,
-	id string) (terraform.HookAction, error) {
+func (h *UiHook) PreImportState(addr addrs.ResourceInstance, importID string) (terraform.HookAction, error) {
 	h.once.Do(h.init)
 
 	addr := n.ResourceAddress()
@@ -322,9 +311,7 @@ func (h *UiHook) PreImportState(
 	return terraform.HookActionContinue, nil
 }
 
-func (h *UiHook) PostImportState(
-	n *terraform.InstanceInfo,
-	s []*terraform.InstanceState) (terraform.HookAction, error) {
+func (h *UiHook) PostImportState(addr addrs.ResourceInstance, imported []*states.ImportedObject) (terraform.HookAction, error) {
 	h.once.Do(h.init)
 
 	addr := n.ResourceAddress()
